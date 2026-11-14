@@ -50,6 +50,29 @@ if (issue !== null) {
   process.exit(1);
 }
 
+// The board and the dashboard data must say the same thing: board.json is the ranked board and
+// data.js is the same board for the page, so a row's rank, slug and implied value must agree in
+// both, and no live-token protocol may appear on the board. Without this check a change to one
+// path and not the other would ship silently and the judge would read two different boards.
+function boardRadarMismatch(boardRows: ReturnType<typeof buildRadar>['board'], radarData: ReturnType<typeof buildRadar>['radar']): string | null {
+  if (boardRows.length !== radarData.rows.length) return `board.json has ${boardRows.length} rows and data.js has ${radarData.rows.length}`;
+  for (let i = 0; i < boardRows.length; i++) {
+    const b = boardRows[i]!;
+    const d = radarData.rows[i]!;
+    if (b.rank !== d.rank || b.slug !== d.slug || b.implied_value_usd !== d.implied_value_usd) {
+      return `row ${i + 1}: board.json says rank ${b.rank} ${b.slug} $${b.implied_value_usd} and data.js says rank ${d.rank} ${d.slug} $${d.implied_value_usd}`;
+    }
+  }
+  const boardSlugs = new Set(boardRows.map((r) => r.slug));
+  for (const live of radarData.live) if (boardSlugs.has(live.slug)) return `live-token protocol ${live.slug} is on the ranked board`;
+  return null;
+}
+const mismatch = boardRadarMismatch(board, radar);
+if (mismatch !== null) {
+  process.stderr.write(`token radar: board.json and data.js disagree: ${mismatch}\n`);
+  process.exit(1);
+}
+
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'board.json'), `${JSON.stringify({ rows: board })}\n`);
 writeFileSync(join(out, 'data.js'), dataScript(radar));
