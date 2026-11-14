@@ -17,13 +17,14 @@ every ranked protocol and a static dashboard a reader can use offline.
   is DefiLlama's record, not proof, and a protocol on the list may still have a token its
   record does not carry. The board never predicts whether or when a token is issued.
 
-## The value model (radar-2)
+## The value model (radar-3)
 
 One function scores every row — no protocol name is special-cased, no row is hand-picked:
 
 ```
 growth      = clamp(change_7d, -50, 150) per cent
-growthMult  = 1 + (growth / 100) x 0.6
+growthMult  = 1 + (growth / 100) x 0.6   when growth >= 0
+              1 + (growth / 100) x 1.2   when growth < 0
 maturity    = 0.65 + min(age_days, 1460) / 1460 x 0.35   (age unknown: 365 days)
 chainMult   = 1 + min(max(chains - 1, 0), 5) x 0.02     (capped at 1.10)
 categoryMult = 1.00 for Lending, Dexes, Derivatives, Perpetuals, Yield, CDP;
@@ -32,6 +33,17 @@ implied     = max(1, round(tvl_usd x 0.30 x growthMult x maturity x chainMult x 
 ```
 
 - **TVL** is the protocol's size; **seven-day growth** is its momentum.
+- **The growth curve is asymmetric (revised 2026-11-15, radar-2 → radar-3):** a decline is
+  penalised at weight 1.2 while growth is rewarded at 0.6. Running radar-2 on the sealed
+  snapshot showed the flaw — 169 of its 226 rows had a negative seven-day TVL change and 15
+  of the top 20 were shrinking, including rank 20 at −28.5% in a week, yet a protocol that
+  lost half its TVL in a week still kept 70% of its implied value, so sheer TVL outranked
+  capital flight. For a launch valuation that is backwards: shrinking TVL is stronger
+  evidence against a launch being worth much than growth is for it. Under radar-3 a −50%
+  week leaves 40% of value and a +150% week leaves 190%. Measured effect on this snapshot:
+  172 of 226 rows changed rank (for example b14g, −28.53% in 7 days, fell from rank 20 to
+  rank 24), while the board still has 226 rows, ranks 1–226, non-increasing implied values
+  and full 40/40 watchlist coverage.
 - **Age** is the time since DefiLlama first listed the protocol — the best record of how long
   it has run with no token on record. A protocol that held large TVL for years without issuing
   a token is worth more than a week-old pool of the same size.
@@ -71,7 +83,7 @@ for every protocol showing its model breakdown and farm plan, plus the live-toke
 
 ```
 main.ts                  entry point (Node 22, standard library only)
-lib/model.ts             the radar-2 model, farm plans, snapshot parsing, board checks
+lib/model.ts             the radar-3 model, farm plans, snapshot parsing, board checks
 vendor/makefun-board.ts  the make.fun dossier library (vendored from the kit)
 dashboard/               index.html, app.css, app.js — static, no network
 screenshots/              1-board.png, 2-detail.png, 3-filtered.png

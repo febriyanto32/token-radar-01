@@ -26,9 +26,10 @@
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
   }
-  // The model in one function (radar-2): the page recomputes a row from the snapshot figures and
+  // The model in one function (radar-3): the page recomputes a row from the snapshot figures and
   // checks the number board.json carries, so the page's code and the board's data are visibly the
-  // same arithmetic. TVL x 0.30, growth clamped to -50..150 at weight 0.6, maturity 0.65..1.00 over
+  // same arithmetic. TVL x 0.30, growth clamped to -50..150, growth rewarded at weight 0.6 but a
+  // decline penalised at weight 1.2 (a -50% week leaves 40% of value), maturity 0.65..1.00 over
   // 1460 days of age, +2% per extra chain (capped at 5), and 1.00 for capital-forming categories
   // (Lending, Dexes, Derivatives, Perpetuals, Yield, CDP) or 0.95 otherwise.
   function categoryMultiplier(category, model) {
@@ -41,7 +42,7 @@
   }
   function impliedOf(row, model) {
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
-    var growthMult = 1 + (growth / 100) * model.growth_weight;
+    var growthMult = growth < 0 ? 1 + (growth / 100) * model.decline_weight : 1 + (growth / 100) * model.growth_weight;
     var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
     var maturity = model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
     var chainMult = 1 + Math.min(Math.max((row.chains || []).length - 1, 0), model.chain_cap) * model.chain_step;
@@ -336,9 +337,9 @@
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x (1 + min(chains - 1, ' + m.chain_cap + ') x ' + m.chain_step + ') x category )'
+        'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ' if growth >= 0, x ' + m.decline_weight + ' if growth < 0) x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x (1 + min(chains - 1, ' + m.chain_cap + ') x ' + m.chain_step + ') x category )'
       ),
-      el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token on record; an unlisted age uses ' + m.unknown_age_days + ' days. Chain count adds a small reach bonus, and the category term is 1.00 for ' + m.category_full.join(', ') + ' and ' + m.category_other + ' for every other category, so no category dominates. The board ranks every rankable pre-token protocol in the snapshot, not just the watchlist, and the live-token protocols are set aside with their market caps shown.' })
+      el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. The growth curve is asymmetric: a decline is penalised at weight ' + m.decline_weight + ' while growth is rewarded at ' + m.growth_weight + ', because capital flight is stronger evidence against a launch being worth much than growth is for it. Age is the time since the protocol was first listed, the best record of how long it has run with no token on record; an unlisted age uses ' + m.unknown_age_days + ' days. Chain count adds a small reach bonus, and the category term is 1.00 for ' + m.category_full.join(', ') + ' and ' + m.category_other + ' for every other category, so no category dominates. The board ranks every rankable pre-token protocol in the snapshot, not just the watchlist, and the live-token protocols are set aside with their market caps shown.' })
     );
   }
 

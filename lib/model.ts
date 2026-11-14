@@ -1,4 +1,4 @@
-// The token radar's model, version radar-2: one snapshot of the protocol universe in, one ranked
+// The token radar's model, version radar-3: one snapshot of the protocol universe in, one ranked
 // board out. This is a rewrite of the starter's model, not a copy of its constants.
 //
 // The board ranks EVERY rankable pre-token protocol in the snapshot: all 40 watchlist slugs (the
@@ -13,18 +13,24 @@
 //
 //   base        = tvl_usd x BASE_MULTIPLE
 //   growth      = clamp(change_7d, -50, 150) per cent
-//   growthMult  = 1 + (growth / 100) x GROWTH_WEIGHT
+//   growthMult  = 1 + (growth / 100) x GROWTH_WEIGHT    when growth >= 0
+//               = 1 + (growth / 100) x DECLINE_WEIGHT  when growth < 0 (radar-3: asymmetric)
 //   maturity    = 0.65 + min(age_days, 1460) / 1460 x 0.35   (age_days unknown: 365)
 //   chainMult   = 1 + min(max(chains - 1, 0), 5) x 0.02     (multi-chain reach, capped at 1.10)
 //   categoryMult = 1.00 for the capital-forming categories (Lending, Dexes, Derivatives,
 //                  Perpetuals, Yield, CDP); 0.95 for every other category or none.
 //   implied     = max(1, round(base x growthMult x maturity x chainMult x categoryMult))
 //
-// Why these terms: TVL is the protocol's size; seven-day growth is its momentum; age is how long
-// it has run with no token on record, so a protocol that held large TVL for years without issuing
-// one is worth more than a week-old pool of the same size; chain count is a small reach bonus; the
-// category term is deliberately small (5%) so no category dominates the ranking. No protocol name
-// is ever special-cased: the same function scores every row.
+// Why the growth curve is asymmetric (radar-3, revised 2026-11-15): running radar-2 on the
+// sealed snapshot showed the flaw — 169 of its 226 rows had a negative seven-day TVL change,
+// and 15 of the top 20 were shrinking, including rank 20 at -28.5% in a week. Under the old
+// symmetric weight 0.6 a protocol that lost half its TVL in a week still kept 70% of its
+// implied value, so sheer TVL outranked capital flight. For a launch valuation that is
+// backwards: shrinking TVL is stronger evidence against a launch being worth much than
+// growth is for it, because a launch's value is the capital that would stay to buy the token.
+// So a decline is now penalised at weight 1.2 (a -50% week leaves 40% of value) while growth
+// is still rewarded at 0.6 (a +150% week leaves 190%). No protocol name is ever special-cased:
+// the same function scores every row.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -53,6 +59,7 @@ export interface Snapshot {
 export interface ModelConstants {
   base_multiple: number;
   growth_weight: number;
+  decline_weight: number;
   growth_floor: number;
   growth_cap: number;
   maturity_floor: number;
@@ -68,6 +75,7 @@ export interface ModelConstants {
 export const MODEL: ModelConstants = {
   base_multiple: 0.3,
   growth_weight: 0.6,
+  decline_weight: 1.2,
   growth_floor: -50,
   growth_cap: 150,
   maturity_floor: 0.65,
@@ -81,7 +89,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -206,7 +214,11 @@ export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: Mo
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
-  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
+  // Asymmetric (radar-3): a decline is penalised at decline_weight, growth rewarded at
+  // growth_weight. A -50% week leaves 40% of value; a +150% week leaves 190%.
+  const growthMult = growthPct < 0
+    ? 1 + (growthPct / 100) * model.decline_weight
+    : 1 + (growthPct / 100) * model.growth_weight;
   const ageForModel = age ?? model.unknown_age_days;
   const maturityMult = model.maturity_floor + (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
   const chainCount = Math.min(Math.max(protocol.chains.length - 1, 0), model.chain_cap);
